@@ -1,13 +1,23 @@
 {
-	"compatibility_date": "2025-10-08",
+	"compatibility_date": "2026-05-14",
 	"main": "src/index.ts",
-	"name": "as-fuel-check-addon",
+	"name": "as-global-addons",
 	"upload_source_maps": true,
-	"d1_databases": [
+	"vars": {
+		"AUTOSPEC_STORE_DOMAIN": "autospec-group.myshopify.com",
+		"AUTOSPEC_FFC_VARIANT_ID": "gid://shopify/ProductVariant/52009214443840",
+		"AUTOSPEC_WT_VARIANT_ID": "gid://shopify/ProductVariant/50506355179840",
+		"AUTOSPEC_MUDFLAP_VARIANT_ID": "gid://shopify/ProductVariant/50595298017600",
+		"LINEX_STORE_DOMAIN": "line-x-australia.myshopify.com",
+		"LINEX_FFC_VARIANT_ID": "gid://shopify/ProductVariant/46912043614383",
+		"LINEX_WT_VARIANT_ID": "gid://shopify/ProductVariant/44268756631727",
+		"LINEX_MUDFLAP_VARIANT_ID": "gid://shopify/ProductVariant/44998037045423",
+		"SHOPIFY_API_VERSION": "2026-04"
+	},
+	"kv_namespaces": [
 		{
-			"binding": "DB",
-			"database_id": "e831e133-783e-48ea-afcd-ef3836771c9a",
-			"database_name": "as-fuel-check-addon-database"
+			"binding": "SHOPIFY_TOKENS",
+			"id": "9edb70ffdfda47fa983954baf08f6fb1"
 		}
 	],
 	"observability": {
