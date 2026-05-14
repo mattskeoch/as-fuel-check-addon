@@ -900,8 +900,8 @@ function calculateAccessoryAddonQuantities(lineItems: DraftOrderLineItem[]) {
 	let mfRequired = 0;
 	let canopyQty = 0;
 	let existingWt = 0;
+	let existingUpgradedWt = 0;
 	let existingMudflap = 0;
-	let hasCanopyLockUpgrade = false;
 	let hasMudflapUpgrade = false;
 
 	for (const lineItem of lineItems) {
@@ -916,7 +916,7 @@ function calculateAccessoryAddonQuantities(lineItems: DraftOrderLineItem[]) {
 		}
 
 		if (sku === CANOPY_LOCK_UPGRADE_SKU) {
-			hasCanopyLockUpgrade = true;
+			existingUpgradedWt += lineItem.quantity;
 			continue;
 		}
 
@@ -946,16 +946,14 @@ function calculateAccessoryAddonQuantities(lineItems: DraftOrderLineItem[]) {
 		}
 	}
 
-	if (!hasCanopyLockUpgrade) {
-		wtRequired += canopyQty * 4;
-	}
+	wtRequired += canopyQty * 4;
 
 	if (hasMudflapUpgrade) {
 		mfRequired = 0;
 	}
 
 	return {
-		wtQty: Math.max(0, wtRequired - existingWt),
+		wtQty: Math.max(0, wtRequired - existingWt - existingUpgradedWt),
 		mfQty: Math.max(0, mfRequired - existingMudflap),
 	};
 }

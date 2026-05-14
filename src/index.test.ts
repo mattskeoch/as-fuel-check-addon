@@ -218,6 +218,125 @@ describe("draft order add-ons Flow endpoint", () => {
 		});
 	});
 
+	it("subtracts central locking whale tail lock upgrade quantity from required regular locks", async () => {
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce(
+				Response.json({
+					data: {
+						draftOrder: {
+							id: "gid://shopify/DraftOrder/1",
+							lineItems: {
+								nodes: [
+									testLineItem("AS-DCT-1700-B", 1),
+									testLineItem("AS-C-1000-B", 1),
+									testLineItem("AS-CL-WT", 4),
+								],
+							},
+						},
+					},
+				}),
+			)
+			.mockResolvedValueOnce(
+				Response.json({
+					data: {
+						draftOrderUpdate: {
+							draftOrder: { id: "gid://shopify/DraftOrder/1" },
+							userErrors: [],
+						},
+					},
+				}),
+			);
+
+		vi.stubGlobal("fetch", fetchMock);
+
+		const response = await worker.fetch(
+			flowRequest({
+				draftOrderId: "gid://shopify/DraftOrder/1",
+				storeDomain: "autospec-group.myshopify.com",
+			}) as any,
+			env as any,
+		);
+
+		expect(response.status).toBe(200);
+		await expect(response.json()).resolves.toMatchObject({
+			action: "added",
+			addedSkus: [
+				{ sku: "L-AS-FFC", quantity: 1 },
+				{ sku: "AS-WT", quantity: 1 },
+				{ sku: "AS-MUDFLAP", quantity: 1 },
+			],
+		});
+
+		const updateBody = JSON.parse(fetchMock.mock.calls[1][1].body as string);
+		expect(updateBody.variables.input.lineItems).toContainEqual({
+			variantId: "gid://shopify/ProductVariant/50506355179840",
+			quantity: 1,
+			appliedDiscount: {
+				title: "Automatic add-on",
+				value: 100,
+				valueType: "PERCENTAGE",
+			},
+		});
+	});
+
+	it("does not add regular locks when central locking upgrades fully cover required locks", async () => {
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce(
+				Response.json({
+					data: {
+						draftOrder: {
+							id: "gid://shopify/DraftOrder/1",
+							lineItems: {
+								nodes: [
+									testLineItem("AS-DCT-1700-B", 1),
+									testLineItem("AS-C-1000-B", 1),
+									testLineItem("AS-CL-WT", 5),
+								],
+							},
+						},
+					},
+				}),
+			)
+			.mockResolvedValueOnce(
+				Response.json({
+					data: {
+						draftOrderUpdate: {
+							draftOrder: { id: "gid://shopify/DraftOrder/1" },
+							userErrors: [],
+						},
+					},
+				}),
+			);
+
+		vi.stubGlobal("fetch", fetchMock);
+
+		const response = await worker.fetch(
+			flowRequest({
+				draftOrderId: "gid://shopify/DraftOrder/1",
+				storeDomain: "autospec-group.myshopify.com",
+			}) as any,
+			env as any,
+		);
+
+		expect(response.status).toBe(200);
+		await expect(response.json()).resolves.toMatchObject({
+			action: "added",
+			addedSkus: [
+				{ sku: "L-AS-FFC", quantity: 1 },
+				{ sku: "AS-MUDFLAP", quantity: 1 },
+			],
+		});
+
+		const updateBody = JSON.parse(fetchMock.mock.calls[1][1].body as string);
+		expect(updateBody.variables.input.lineItems).not.toContainEqual(
+			expect.objectContaining({
+				variantId: "gid://shopify/ProductVariant/50506355179840",
+			}),
+		);
+	});
+
 	it("merges extra free whale tail lock quantity into the existing automatic add-on line", async () => {
 		const fetchMock = vi
 			.fn()
