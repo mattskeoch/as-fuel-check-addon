@@ -618,7 +618,7 @@ async function applyDraftOrderAddons(
 	const lineItems = await fetchAllDraftOrderLineItems(authorizedStore, draftOrderId);
 	const addonLines = calculateAddonLines(lineItems, store);
 
-	const rebuilt = buildDraftOrderLineItems(lineItems, addonLines);
+	const rebuilt = buildDraftOrderLineItems(lineItems, addonLines, store);
 
 	if (addonLines.length === 0 && !rebuilt.changed) {
 		if (!hasAddonRuleTrigger(lineItems)) {
@@ -989,13 +989,17 @@ function toAddonLineItemInput(addonLine: AddonLine): DraftOrderLineItemInput {
 	return input;
 }
 
-function buildDraftOrderLineItems(lineItems: DraftOrderLineItem[], addonLines: AddonLine[]) {
+function buildDraftOrderLineItems(
+	lineItems: DraftOrderLineItem[],
+	addonLines: AddonLine[],
+	store: StoreConfig,
+) {
 	const rebuiltLineItems: DraftOrderLineItemInput[] = [];
 	const mergeableAddonIndexes = new Map<string, number>();
 	let changed = false;
 
 	for (const lineItem of lineItems) {
-		const ownedAddonKey = getOwnedAutomaticAddonKey(lineItem);
+		const ownedAddonKey = getOwnedAutomaticAddonKey(lineItem, store);
 		if (ownedAddonKey) {
 			const existingIndex = mergeableAddonIndexes.get(ownedAddonKey);
 			if (existingIndex != null) {
@@ -1029,18 +1033,25 @@ function buildDraftOrderLineItems(lineItems: DraftOrderLineItem[], addonLines: A
 	};
 }
 
-function getOwnedAutomaticAddonKey(lineItem: DraftOrderLineItem): string {
-	if (!lineItem.variant?.id || !isAutomaticAddonDiscount(lineItem.appliedDiscount)) {
+function getOwnedAutomaticAddonKey(lineItem: DraftOrderLineItem, store: StoreConfig): string {
+	if (
+		!lineItem.variant?.id ||
+		!isConfiguredFreeAddonVariant(lineItem.variant.id, store) ||
+		!isAutomaticAddonDiscount(lineItem.appliedDiscount)
+	) {
 		return "";
 	}
 
 	return lineItem.variant.id;
 }
 
+function isConfiguredFreeAddonVariant(variantId: string, store: StoreConfig): boolean {
+	return variantId === store.whaleTailLockVariantId || variantId === store.mudflapVariantId;
+}
+
 function isAutomaticAddonDiscount(discount: AppliedDiscount | null | undefined): boolean {
 	return (
-		discount?.title === "Automatic add-on" &&
-		discount.value === 100 &&
+		discount?.value === 100 &&
 		discount.valueType === "PERCENTAGE"
 	);
 }

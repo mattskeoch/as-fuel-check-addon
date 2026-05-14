@@ -296,6 +296,77 @@ describe("draft order add-ons Flow endpoint", () => {
 		expect(lineItems).toHaveLength(5);
 	});
 
+	it("merges existing free add-on lines even when Shopify returns no discount title", async () => {
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce(
+				Response.json({
+					data: {
+						draftOrder: {
+							id: "gid://shopify/DraftOrder/1",
+							lineItems: {
+								nodes: [
+									testLineItem("AS-DCT-1700-B", 1),
+									testLineItem("AS-C-1000-B", 1),
+									testLineItem("AS-WT", 1, "gid://shopify/ProductVariant/50506355179840", {
+										title: null,
+										value: 100,
+										valueType: "PERCENTAGE",
+									}),
+									testLineItem("L-AS-FFC", 1, "gid://shopify/ProductVariant/52009214443840"),
+									testLineItem("AS-MUDFLAP", 1, "gid://shopify/ProductVariant/50595298017600", {
+										title: null,
+										value: 100,
+										valueType: "PERCENTAGE",
+									}),
+								],
+							},
+						},
+					},
+				}),
+			)
+			.mockResolvedValueOnce(
+				Response.json({
+					data: {
+						draftOrderUpdate: {
+							draftOrder: { id: "gid://shopify/DraftOrder/1" },
+							userErrors: [],
+						},
+					},
+				}),
+			);
+
+		vi.stubGlobal("fetch", fetchMock);
+
+		const response = await worker.fetch(
+			flowRequest({
+				draftOrderId: "gid://shopify/DraftOrder/1",
+				storeDomain: "autospec-group.myshopify.com",
+			}) as any,
+			env as any,
+		);
+
+		expect(response.status).toBe(200);
+
+		const updateBody = JSON.parse(fetchMock.mock.calls[1][1].body as string);
+		expect(
+			updateBody.variables.input.lineItems.filter(
+				(lineItem: { variantId?: string }) =>
+					lineItem.variantId === "gid://shopify/ProductVariant/50506355179840",
+			),
+		).toEqual([
+			{
+				variantId: "gid://shopify/ProductVariant/50506355179840",
+				quantity: 5,
+				customAttributes: [],
+				appliedDiscount: {
+					value: 100,
+					valueType: "PERCENTAGE",
+				},
+			},
+		]);
+	});
+
 	it("consolidates duplicate automatic add-on lines owned by the Worker", async () => {
 		const fetchMock = vi
 			.fn()
