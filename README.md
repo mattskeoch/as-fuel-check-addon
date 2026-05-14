@@ -193,3 +193,9 @@ Create the same Flow in both stores.
 npm test
 npm run check
 ```
+
+## Future Changes
+
+For repo handoff notes, implementation cautions, and the safe change workflow, read `AGENTS.md` first.
+
+Most rule changes should be made in `src/index.ts` and covered by `src/index.test.ts`. The most important invariant is preserving every existing draft order line item when calling Shopify `draftOrderUpdate`.
