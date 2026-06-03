@@ -879,7 +879,7 @@ function calculateAddonLines(lineItems: DraftOrderLineItem[], store: StoreConfig
 			sku: "AS-WT",
 			variantId: store.whaleTailLockVariantId,
 			quantity: wtQty,
-			free: true,
+			free: false,
 		});
 	}
 
@@ -1044,7 +1044,7 @@ function getOwnedAutomaticAddonKey(lineItem: DraftOrderLineItem, store: StoreCon
 }
 
 function isConfiguredFreeAddonVariant(variantId: string, store: StoreConfig): boolean {
-	return variantId === store.whaleTailLockVariantId || variantId === store.mudflapVariantId;
+	return variantId === store.mudflapVariantId;
 }
 
 function isAutomaticAddonDiscount(discount: AppliedDiscount | null | undefined): boolean {

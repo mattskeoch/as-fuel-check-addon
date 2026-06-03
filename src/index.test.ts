@@ -142,11 +142,6 @@ describe("draft order add-ons Flow endpoint", () => {
 			{
 				variantId: "gid://shopify/ProductVariant/50506355179840",
 				quantity: 2,
-				appliedDiscount: {
-					title: "Automatic add-on",
-					value: 100,
-					valueType: "PERCENTAGE",
-				},
 			},
 			{
 				variantId: "gid://shopify/ProductVariant/50595298017600",
@@ -160,7 +155,7 @@ describe("draft order add-ons Flow endpoint", () => {
 		]);
 	});
 
-	it("adds free whale tail locks from canopy and toolbox quantities after subtracting existing locks", async () => {
+	it("adds whale tail locks at full price from canopy and toolbox quantities after subtracting existing locks", async () => {
 		const fetchMock = vi
 			.fn()
 			.mockResolvedValueOnce(
@@ -210,11 +205,6 @@ describe("draft order add-ons Flow endpoint", () => {
 		expect(updateBody.variables.input.lineItems.at(-1)).toEqual({
 			variantId: "gid://shopify/ProductVariant/50506355179840",
 			quantity: 4,
-			appliedDiscount: {
-				title: "Automatic add-on",
-				value: 100,
-				valueType: "PERCENTAGE",
-			},
 		});
 	});
 
@@ -272,11 +262,6 @@ describe("draft order add-ons Flow endpoint", () => {
 		expect(updateBody.variables.input.lineItems).toContainEqual({
 			variantId: "gid://shopify/ProductVariant/50506355179840",
 			quantity: 1,
-			appliedDiscount: {
-				title: "Automatic add-on",
-				value: 100,
-				valueType: "PERCENTAGE",
-			},
 		});
 	});
 
@@ -337,7 +322,7 @@ describe("draft order add-ons Flow endpoint", () => {
 		);
 	});
 
-	it("merges extra free whale tail lock quantity into the existing automatic add-on line", async () => {
+	it("adds extra whale tail lock quantity at full price without merging into an existing discounted line", async () => {
 		const fetchMock = vi
 			.fn()
 			.mockResolvedValueOnce(
@@ -403,7 +388,7 @@ describe("draft order add-ons Flow endpoint", () => {
 		).toEqual([
 			{
 				variantId: "gid://shopify/ProductVariant/50506355179840",
-				quantity: 5,
+				quantity: 1,
 				customAttributes: [],
 				appliedDiscount: {
 					title: "Automatic add-on",
@@ -411,11 +396,15 @@ describe("draft order add-ons Flow endpoint", () => {
 					valueType: "PERCENTAGE",
 				},
 			},
+			{
+				variantId: "gid://shopify/ProductVariant/50506355179840",
+				quantity: 4,
+			},
 		]);
-		expect(lineItems).toHaveLength(5);
+		expect(lineItems).toHaveLength(6);
 	});
 
-	it("merges existing free add-on lines even when Shopify returns no discount title", async () => {
+	it("keeps discounted lock lines separate while merging free add-on lines without discount titles", async () => {
 		const fetchMock = vi
 			.fn()
 			.mockResolvedValueOnce(
@@ -476,12 +465,16 @@ describe("draft order add-ons Flow endpoint", () => {
 		).toEqual([
 			{
 				variantId: "gid://shopify/ProductVariant/50506355179840",
-				quantity: 5,
+				quantity: 1,
 				customAttributes: [],
 				appliedDiscount: {
 					value: 100,
 					valueType: "PERCENTAGE",
 				},
+			},
+			{
+				variantId: "gid://shopify/ProductVariant/50506355179840",
+				quantity: 4,
 			},
 		]);
 	});
@@ -498,17 +491,13 @@ describe("draft order add-ons Flow endpoint", () => {
 								nodes: [
 									testLineItem("AS-DCT-1700-B", 1),
 									testLineItem("AS-C-1000-B", 1),
-									testLineItem("AS-WT", 1, "gid://shopify/ProductVariant/50506355179840", {
-										title: "Automatic add-on",
-										value: 100,
-										valueType: "PERCENTAGE",
-									}),
-									testLineItem("AS-WT", 4, "gid://shopify/ProductVariant/50506355179840", {
-										title: "Automatic add-on",
-										value: 100,
-										valueType: "PERCENTAGE",
-									}),
+									testLineItem("AS-WT", 5, "gid://shopify/ProductVariant/50506355179840"),
 									testLineItem("L-AS-FFC", 1, "gid://shopify/ProductVariant/52009214443840"),
+									testLineItem("AS-MUDFLAP", 1, "gid://shopify/ProductVariant/50595298017600", {
+										title: "Automatic add-on",
+										value: 100,
+										valueType: "PERCENTAGE",
+									}),
 									testLineItem("AS-MUDFLAP", 1, "gid://shopify/ProductVariant/50595298017600", {
 										title: "Automatic add-on",
 										value: 100,
@@ -559,11 +548,6 @@ describe("draft order add-ons Flow endpoint", () => {
 				variantId: "gid://shopify/ProductVariant/50506355179840",
 				quantity: 5,
 				customAttributes: [],
-				appliedDiscount: {
-					title: "Automatic add-on",
-					value: 100,
-					valueType: "PERCENTAGE",
-				},
 			},
 		]);
 		expect(lineItems).toHaveLength(5);
@@ -927,11 +911,6 @@ describe("draft order add-ons Shopify webhook endpoint", () => {
 			{
 				variantId: "gid://shopify/ProductVariant/50506355179840",
 				quantity: 4,
-				appliedDiscount: {
-					title: "Automatic add-on",
-					value: 100,
-					valueType: "PERCENTAGE",
-				},
 			},
 		]);
 	});
