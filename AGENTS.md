@@ -63,6 +63,7 @@ Canopy SKUs:
 
 ```text
 AS-C-* adds AS-WT x 4 per line quantity unless AS-CL-WT exists
+AS-C-* also adds AS-RWS Rubber Weather Seal 100mm at full price using ceil(size_mm * 2 / 100) x canopy quantity
 ```
 
 Under tray toolbox SKUs:
@@ -77,13 +78,15 @@ Mudflap upgrades:
 AS-MUDFLAP-350 or AS-MUDFLAP-400 suppresses all AS-MUDFLAP additions
 ```
 
-Existing `AS-WT` and `AS-MUDFLAP` quantities are subtracted before adding missing quantities.
+Existing `AS-WT`, `AS-MUDFLAP`, and `AS-RWS` quantities are subtracted before adding missing quantities.
 
 ## Important Implementation Notes
 
 - Source file: `src/index.ts`.
 - Tests: `src/index.test.ts`.
 - Store-specific variant IDs are configured in `wrangler.json`.
+  - `autospec-group.myshopify.com` AS-RWS: `gid://shopify/ProductVariant/52021171880256`
+  - `line-x-australia.myshopify.com` AS-RWS: `gid://shopify/ProductVariant/46929866031279`
 - Shopify OAuth secrets are Cloudflare Worker secrets, not checked into the repo.
 - `SHOPIFY_TOKENS` KV is configured, but the live Worker can also use legacy token secrets if KV has no token.
 - Webhook HMAC validation must use the raw request body and `X-Shopify-Hmac-SHA256`.

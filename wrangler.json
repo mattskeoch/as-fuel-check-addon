@@ -8,10 +8,12 @@
 		"AUTOSPEC_FFC_VARIANT_ID": "gid://shopify/ProductVariant/52009214443840",
 		"AUTOSPEC_WT_VARIANT_ID": "gid://shopify/ProductVariant/50506355179840",
 		"AUTOSPEC_MUDFLAP_VARIANT_ID": "gid://shopify/ProductVariant/50595298017600",
+		"AUTOSPEC_RWS_VARIANT_ID": "gid://shopify/ProductVariant/52021171880256",
 		"LINEX_STORE_DOMAIN": "line-x-australia.myshopify.com",
 		"LINEX_FFC_VARIANT_ID": "gid://shopify/ProductVariant/46912043614383",
 		"LINEX_WT_VARIANT_ID": "gid://shopify/ProductVariant/44268756631727",
 		"LINEX_MUDFLAP_VARIANT_ID": "gid://shopify/ProductVariant/44998037045423",
+		"LINEX_RWS_VARIANT_ID": "gid://shopify/ProductVariant/46929866031279",
 		"SHOPIFY_API_VERSION": "2026-04"
 	},
 	"kv_namespaces": [

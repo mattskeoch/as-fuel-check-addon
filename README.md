@@ -15,9 +15,11 @@ Accessory add-on rule:
 ```text
 AS-SUTT-* or AS-TUTT-* adds 2 x AS-WT per line quantity.
 AS-C-* adds 4 x AS-WT per line quantity unless AS-CL-WT exists.
+AS-C-* adds AS-RWS Rubber Weather Seal 100mm at full price based on canopy size: ceil(size_mm * 2 / 100) per line quantity.
 Tray SKUs add 1 x AS-WT and 1 x AS-MUDFLAP per line quantity.
 AS-MUDFLAP-350 or AS-MUDFLAP-400 suppresses all AS-MUDFLAP additions.
 Existing AS-WT and AS-MUDFLAP quantities are subtracted before adding missing quantities.
+Existing AS-RWS quantity is subtracted before adding missing quantity.
 AS-WT and AS-MUDFLAP are added with a 100% automatic discount.
 ```
 
@@ -129,8 +131,10 @@ Current accessory add-on variants:
 ```text
 autospec-group.myshopify.com AS-WT: gid://shopify/ProductVariant/50506355179840
 autospec-group.myshopify.com AS-MUDFLAP: gid://shopify/ProductVariant/50595298017600
+autospec-group.myshopify.com AS-RWS: gid://shopify/ProductVariant/52021171880256
 line-x-australia.myshopify.com AS-WT: gid://shopify/ProductVariant/44268756631727
 line-x-australia.myshopify.com AS-MUDFLAP: gid://shopify/ProductVariant/44998037045423
+line-x-australia.myshopify.com AS-RWS: gid://shopify/ProductVariant/46929866031279
 ```
 
 Future add-on rules should use variant IDs, not product IDs.

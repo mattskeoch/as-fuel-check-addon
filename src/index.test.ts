@@ -8,11 +8,13 @@ const env = {
 	AUTOSPEC_FFC_VARIANT_ID: "gid://shopify/ProductVariant/52009214443840",
 	AUTOSPEC_WT_VARIANT_ID: "gid://shopify/ProductVariant/50506355179840",
 	AUTOSPEC_MUDFLAP_VARIANT_ID: "gid://shopify/ProductVariant/50595298017600",
+	AUTOSPEC_RWS_VARIANT_ID: "gid://shopify/ProductVariant/52021171880256",
 	LINEX_STORE_DOMAIN: "line-x-australia.myshopify.com",
 	LINEX_ADMIN_ACCESS_TOKEN: "linex-token",
 	LINEX_FFC_VARIANT_ID: "gid://shopify/ProductVariant/222",
 	LINEX_WT_VARIANT_ID: "gid://shopify/ProductVariant/333",
 	LINEX_MUDFLAP_VARIANT_ID: "gid://shopify/ProductVariant/444",
+	LINEX_RWS_VARIANT_ID: "gid://shopify/ProductVariant/46929866031279",
 	FLOW_SHARED_SECRET: "flow-secret",
 	SHOPIFY_API_VERSION: "2026-04",
 	SHOPIFY_CLIENT_SECRET: "client-secret",
@@ -198,13 +200,206 @@ describe("draft order add-ons Flow endpoint", () => {
 		expect(response.status).toBe(200);
 		await expect(response.json()).resolves.toMatchObject({
 			action: "added",
-			addedSkus: [{ sku: "AS-WT", quantity: 4 }],
+			addedSkus: [
+				{ sku: "AS-WT", quantity: 4 },
+				{ sku: "AS-RWS", quantity: 28 },
+			],
 		});
 
 		const updateBody = JSON.parse(fetchMock.mock.calls[1][1].body as string);
-		expect(updateBody.variables.input.lineItems.at(-1)).toEqual({
+		expect(updateBody.variables.input.lineItems).toContainEqual({
 			variantId: "gid://shopify/ProductVariant/50506355179840",
 			quantity: 4,
+		});
+	});
+
+	it("adds full-price rubber weather seal from canopy size and line quantity", async () => {
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce(
+				Response.json({
+					data: {
+						draftOrder: {
+							id: "gid://shopify/DraftOrder/1",
+							lineItems: {
+								nodes: [testLineItem("AS-C-1700-B", 2)],
+							},
+						},
+					},
+				}),
+			)
+			.mockResolvedValueOnce(
+				Response.json({
+					data: {
+						draftOrderUpdate: {
+							draftOrder: { id: "gid://shopify/DraftOrder/1" },
+							userErrors: [],
+						},
+					},
+				}),
+			);
+
+		vi.stubGlobal("fetch", fetchMock);
+
+		const response = await worker.fetch(
+			flowRequest({
+				draftOrderId: "gid://shopify/DraftOrder/1",
+				storeDomain: "autospec-group.myshopify.com",
+			}) as any,
+			env as any,
+		);
+
+		expect(response.status).toBe(200);
+		await expect(response.json()).resolves.toMatchObject({
+			action: "added",
+			addedSkus: [
+				{ sku: "AS-WT", quantity: 8 },
+				{ sku: "AS-RWS", quantity: 68 },
+			],
+		});
+
+		const updateBody = JSON.parse(fetchMock.mock.calls[1][1].body as string);
+		const lineItems = updateBody.variables.input.lineItems;
+		expect(lineItems).toContainEqual({
+			variantId: "gid://shopify/ProductVariant/52021171880256",
+			quantity: 68,
+		});
+		expect(
+			lineItems.filter(
+				(lineItem: { variantId?: string }) =>
+					lineItem.variantId === "gid://shopify/ProductVariant/52021171880256",
+			),
+		).toEqual([
+			{
+				variantId: "gid://shopify/ProductVariant/52021171880256",
+				quantity: 68,
+			},
+		]);
+		expect(
+			lineItems.some(
+				(lineItem: { variantId?: string; appliedDiscount?: unknown }) =>
+					lineItem.variantId === "gid://shopify/ProductVariant/52021171880256" &&
+					lineItem.appliedDiscount,
+			),
+		).toBe(false);
+	});
+
+	it("subtracts existing rubber weather seal quantity before adding missing quantity", async () => {
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce(
+				Response.json({
+					data: {
+						draftOrder: {
+							id: "gid://shopify/DraftOrder/1",
+							lineItems: {
+								nodes: [
+									testLineItem("AS-C-1700-B", 1),
+									testLineItem("AS-RWS", 10, "gid://shopify/ProductVariant/52021171880256"),
+								],
+							},
+						},
+					},
+				}),
+			)
+			.mockResolvedValueOnce(
+				Response.json({
+					data: {
+						draftOrderUpdate: {
+							draftOrder: { id: "gid://shopify/DraftOrder/1" },
+							userErrors: [],
+						},
+					},
+				}),
+			);
+
+		vi.stubGlobal("fetch", fetchMock);
+
+		const response = await worker.fetch(
+			flowRequest({
+				draftOrderId: "gid://shopify/DraftOrder/1",
+				storeDomain: "autospec-group.myshopify.com",
+			}) as any,
+			env as any,
+		);
+
+		expect(response.status).toBe(200);
+		await expect(response.json()).resolves.toMatchObject({
+			action: "added",
+			addedSkus: [
+				{ sku: "AS-WT", quantity: 4 },
+				{ sku: "AS-RWS", quantity: 24 },
+			],
+		});
+
+		const updateBody = JSON.parse(fetchMock.mock.calls[1][1].body as string);
+		expect(
+			updateBody.variables.input.lineItems.filter(
+				(lineItem: { variantId?: string }) =>
+					lineItem.variantId === "gid://shopify/ProductVariant/52021171880256",
+			),
+		).toEqual([
+			{
+				variantId: "gid://shopify/ProductVariant/52021171880256",
+				quantity: 10,
+				customAttributes: [],
+			},
+			{
+				variantId: "gid://shopify/ProductVariant/52021171880256",
+				quantity: 24,
+			},
+		]);
+	});
+
+	it("uses the Line-X rubber weather seal variant for Line-X draft orders", async () => {
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce(
+				Response.json({
+					data: {
+						draftOrder: {
+							id: "gid://shopify/DraftOrder/1",
+							lineItems: {
+								nodes: [testLineItem("AS-C-1400-B", 1)],
+							},
+						},
+					},
+				}),
+			)
+			.mockResolvedValueOnce(
+				Response.json({
+					data: {
+						draftOrderUpdate: {
+							draftOrder: { id: "gid://shopify/DraftOrder/1" },
+							userErrors: [],
+						},
+					},
+				}),
+			);
+
+		vi.stubGlobal("fetch", fetchMock);
+
+		const response = await worker.fetch(
+			flowRequest({
+				draftOrderId: "gid://shopify/DraftOrder/1",
+				storeDomain: "line-x-australia.myshopify.com",
+			}) as any,
+			env as any,
+		);
+
+		expect(response.status).toBe(200);
+		await expect(response.json()).resolves.toMatchObject({
+			action: "added",
+			addedSkus: [
+				{ sku: "AS-WT", quantity: 4 },
+				{ sku: "AS-RWS", quantity: 28 },
+			],
+		});
+
+		const updateBody = JSON.parse(fetchMock.mock.calls[1][1].body as string);
+		expect(updateBody.variables.input.lineItems).toContainEqual({
+			variantId: "gid://shopify/ProductVariant/46929866031279",
+			quantity: 28,
 		});
 	});
 
@@ -255,6 +450,7 @@ describe("draft order add-ons Flow endpoint", () => {
 				{ sku: "L-AS-FFC", quantity: 1 },
 				{ sku: "AS-WT", quantity: 1 },
 				{ sku: "AS-MUDFLAP", quantity: 1 },
+				{ sku: "AS-RWS", quantity: 20 },
 			],
 		});
 
@@ -311,6 +507,7 @@ describe("draft order add-ons Flow endpoint", () => {
 			addedSkus: [
 				{ sku: "L-AS-FFC", quantity: 1 },
 				{ sku: "AS-MUDFLAP", quantity: 1 },
+				{ sku: "AS-RWS", quantity: 20 },
 			],
 		});
 
@@ -375,7 +572,10 @@ describe("draft order add-ons Flow endpoint", () => {
 		expect(response.status).toBe(200);
 		await expect(response.json()).resolves.toMatchObject({
 			action: "added",
-			addedSkus: [{ sku: "AS-WT", quantity: 4 }],
+			addedSkus: [
+				{ sku: "AS-WT", quantity: 4 },
+				{ sku: "AS-RWS", quantity: 20 },
+			],
 		});
 
 		const updateBody = JSON.parse(fetchMock.mock.calls[1][1].body as string);
@@ -401,7 +601,7 @@ describe("draft order add-ons Flow endpoint", () => {
 				quantity: 4,
 			},
 		]);
-		expect(lineItems).toHaveLength(6);
+		expect(lineItems).toHaveLength(7);
 	});
 
 	it("keeps discounted lock lines separate while merging free add-on lines without discount titles", async () => {
@@ -532,8 +732,8 @@ describe("draft order add-ons Flow endpoint", () => {
 
 		expect(response.status).toBe(200);
 		await expect(response.json()).resolves.toMatchObject({
-			action: "cleaned_up",
-			reason: "consolidated_automatic_addons",
+			action: "added",
+			addedSkus: [{ sku: "AS-RWS", quantity: 20 }],
 		});
 
 		const updateBody = JSON.parse(fetchMock.mock.calls[1][1].body as string);
@@ -550,7 +750,7 @@ describe("draft order add-ons Flow endpoint", () => {
 				customAttributes: [],
 			},
 		]);
-		expect(lineItems).toHaveLength(5);
+		expect(lineItems).toHaveLength(6);
 	});
 
 	it("suppresses mudflap additions when a mudflap upgrade is already selected", async () => {
@@ -897,7 +1097,10 @@ describe("draft order add-ons Shopify webhook endpoint", () => {
 		expect(response.status).toBe(200);
 		await expect(response.json()).resolves.toMatchObject({
 			action: "added",
-			addedSkus: [{ sku: "AS-WT", quantity: 4 }],
+			addedSkus: [
+				{ sku: "AS-WT", quantity: 4 },
+				{ sku: "AS-RWS", quantity: 20 },
+			],
 		});
 
 		const updateBody = JSON.parse(fetchMock.mock.calls[1][1].body as string);
@@ -911,6 +1114,10 @@ describe("draft order add-ons Shopify webhook endpoint", () => {
 			{
 				variantId: "gid://shopify/ProductVariant/50506355179840",
 				quantity: 4,
+			},
+			{
+				variantId: "gid://shopify/ProductVariant/52021171880256",
+				quantity: 20,
 			},
 		]);
 	});

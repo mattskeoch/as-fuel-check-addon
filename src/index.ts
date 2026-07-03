@@ -11,6 +11,7 @@ const FFC_SKU = "l-as-ffc";
 const WHALE_TAIL_LOCK_SKU = "as-wt";
 const CANOPY_LOCK_UPGRADE_SKU = "as-cl-wt";
 const MUDFLAP_SKU = "as-mudflap";
+const RUBBER_WEATHER_SEAL_SKU = "as-rws";
 
 const MUDFLAP_UPGRADE_SKUS = new Set(["as-mudflap-350", "as-mudflap-400"]);
 
@@ -41,11 +42,13 @@ type AppEnv = Env & {
 	AUTOSPEC_FFC_VARIANT_ID?: string;
 	AUTOSPEC_WT_VARIANT_ID?: string;
 	AUTOSPEC_MUDFLAP_VARIANT_ID?: string;
+	AUTOSPEC_RWS_VARIANT_ID?: string;
 	LINEX_STORE_DOMAIN?: string;
 	LINEX_ADMIN_ACCESS_TOKEN?: string;
 	LINEX_FFC_VARIANT_ID?: string;
 	LINEX_WT_VARIANT_ID?: string;
 	LINEX_MUDFLAP_VARIANT_ID?: string;
+	LINEX_RWS_VARIANT_ID?: string;
 	FLOW_SHARED_SECRET?: string;
 	SHOPIFY_API_VERSION?: string;
 	SHOPIFY_CLIENT_ID?: string;
@@ -60,6 +63,7 @@ type StoreConfig = {
 	finalFuelCheckVariantId: string;
 	whaleTailLockVariantId: string;
 	mudflapVariantId: string;
+	rubberWeatherSealVariantId: string;
 	apiVersion: string;
 };
 
@@ -591,7 +595,8 @@ async function applyDraftOrderAddons(
 	if (
 		!store.finalFuelCheckVariantId ||
 		!store.whaleTailLockVariantId ||
-		!store.mudflapVariantId
+		!store.mudflapVariantId ||
+		!store.rubberWeatherSealVariantId
 	) {
 		console.error("addons.configuration_error", {
 			storeDomain,
@@ -600,6 +605,7 @@ async function applyDraftOrderAddons(
 			missingVariantId: !store.finalFuelCheckVariantId,
 			missingWhaleTailLockVariantId: !store.whaleTailLockVariantId,
 			missingMudflapVariantId: !store.mudflapVariantId,
+			missingRubberWeatherSealVariantId: !store.rubberWeatherSealVariantId,
 		});
 		throw new ClientError("configuration_error", 500);
 	}
@@ -873,7 +879,7 @@ function calculateAddonLines(lineItems: DraftOrderLineItem[], store: StoreConfig
 		});
 	}
 
-	const { wtQty, mfQty } = calculateAccessoryAddonQuantities(lineItems);
+	const { wtQty, mfQty, rwsQty } = calculateAccessoryAddonQuantities(lineItems);
 	if (wtQty > 0) {
 		addonLines.push({
 			sku: "AS-WT",
@@ -892,16 +898,27 @@ function calculateAddonLines(lineItems: DraftOrderLineItem[], store: StoreConfig
 		});
 	}
 
+	if (rwsQty > 0) {
+		addonLines.push({
+			sku: "AS-RWS",
+			variantId: store.rubberWeatherSealVariantId,
+			quantity: rwsQty,
+			free: false,
+		});
+	}
+
 	return addonLines;
 }
 
 function calculateAccessoryAddonQuantities(lineItems: DraftOrderLineItem[]) {
 	let wtRequired = 0;
 	let mfRequired = 0;
+	let rwsRequired = 0;
 	let canopyQty = 0;
 	let existingWt = 0;
 	let existingUpgradedWt = 0;
 	let existingMudflap = 0;
+	let existingRws = 0;
 	let hasMudflapUpgrade = false;
 
 	for (const lineItem of lineItems) {
@@ -925,6 +942,11 @@ function calculateAccessoryAddonQuantities(lineItems: DraftOrderLineItem[]) {
 			continue;
 		}
 
+		if (sku === RUBBER_WEATHER_SEAL_SKU) {
+			existingRws += lineItem.quantity;
+			continue;
+		}
+
 		if (MUDFLAP_UPGRADE_SKUS.has(sku)) {
 			hasMudflapUpgrade = true;
 			continue;
@@ -937,6 +959,10 @@ function calculateAccessoryAddonQuantities(lineItems: DraftOrderLineItem[]) {
 
 		if (sku.startsWith("as-c-")) {
 			canopyQty += lineItem.quantity;
+			const canopySizeMm = getCanopySizeMm(sku);
+			if (canopySizeMm != null) {
+				rwsRequired += Math.ceil((canopySizeMm * 2) / 100) * lineItem.quantity;
+			}
 			continue;
 		}
 
@@ -955,7 +981,17 @@ function calculateAccessoryAddonQuantities(lineItems: DraftOrderLineItem[]) {
 	return {
 		wtQty: Math.max(0, wtRequired - existingWt - existingUpgradedWt),
 		mfQty: Math.max(0, mfRequired - existingMudflap),
+		rwsQty: Math.max(0, rwsRequired - existingRws),
 	};
+}
+
+function getCanopySizeMm(sku: string): number | null {
+	const match = /^as-c-(\d+)(?:-|$)/.exec(sku);
+	if (!match) {
+		return null;
+	}
+
+	return Number.parseInt(match[1], 10);
 }
 
 function hasAddonRuleTrigger(lineItems: DraftOrderLineItem[]) {
@@ -1067,6 +1103,7 @@ function getConfiguredStores(env: AppEnv): StoreConfig[] {
 			finalFuelCheckVariantId: env.AUTOSPEC_FFC_VARIANT_ID ?? "",
 			whaleTailLockVariantId: env.AUTOSPEC_WT_VARIANT_ID ?? "",
 			mudflapVariantId: env.AUTOSPEC_MUDFLAP_VARIANT_ID ?? "",
+			rubberWeatherSealVariantId: env.AUTOSPEC_RWS_VARIANT_ID ?? "",
 			apiVersion,
 		},
 		{
@@ -1075,6 +1112,7 @@ function getConfiguredStores(env: AppEnv): StoreConfig[] {
 			finalFuelCheckVariantId: env.LINEX_FFC_VARIANT_ID ?? "",
 			whaleTailLockVariantId: env.LINEX_WT_VARIANT_ID ?? "",
 			mudflapVariantId: env.LINEX_MUDFLAP_VARIANT_ID ?? "",
+			rubberWeatherSealVariantId: env.LINEX_RWS_VARIANT_ID ?? "",
 			apiVersion,
 		},
 	].filter((store) => store.storeDomain);
