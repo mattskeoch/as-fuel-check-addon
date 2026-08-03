@@ -12,6 +12,7 @@ const WHALE_TAIL_LOCK_SKU = "as-wt";
 const CANOPY_LOCK_UPGRADE_SKU = "as-cl-wt";
 const MUDFLAP_SKU = "as-mudflap";
 const RUBBER_WEATHER_SEAL_SKU = "as-rws";
+const DRAFT_ADDON_STATE_PREFIX = "draft-addon-state";
 
 const MUDFLAP_UPGRADE_SKUS = new Set(["as-mudflap-350", "as-mudflap-400"]);
 
@@ -150,6 +151,16 @@ type AddonLine = {
 	free: boolean;
 };
 
+type AddonSku = "L-AS-FFC" | "AS-WT" | "AS-MUDFLAP" | "AS-RWS";
+
+type AddonQuantityMap = Partial<Record<AddonSku, number>>;
+
+type DraftAddonState = {
+	version: 1;
+	required: AddonQuantityMap;
+	staffRemoved: AddonQuantityMap;
+};
+
 type AddonApplyResult =
 	| {
 			action: "added";
@@ -170,6 +181,10 @@ type AddonApplyResult =
 			action: "cleaned_up";
 			reason: "consolidated_automatic_addons";
 			lineItemCount: number;
+	  }
+	| {
+			action: "ignored";
+			reason: "draft_order_update_without_state";
 	  };
 
 type DraftOrderPage = {
@@ -502,22 +517,8 @@ async function handleDraftOrderWebhook(request: Request, env: AppEnv): Promise<R
 		return jsonResponse({ ok: true, action: "ignored", reason: "missing_draft_order_id" });
 	}
 
-	if (topic === "draft_orders/update") {
-		console.log("addons.webhook_ignored", {
-			storeDomain,
-			topic,
-			draftOrderId,
-			reason: "draft_order_update_manual_edit_safe",
-		});
-		return jsonResponse({
-			ok: true,
-			action: "ignored",
-			reason: "draft_order_update_manual_edit_safe",
-		});
-	}
-
 	try {
-		const result = await applyDraftOrderAddons(env, storeDomain, draftOrderId, "webhook");
+		const result = await applyDraftOrderAddons(env, storeDomain, draftOrderId, "webhook", topic);
 		return jsonResponse({ ok: true, ...result });
 	} catch (error) {
 		if (error instanceof ClientError) {
@@ -599,6 +600,7 @@ async function applyDraftOrderAddons(
 	storeDomain: string,
 	draftOrderId: string,
 	source: "flow" | "webhook",
+	webhookTopic?: string,
 ): Promise<AddonApplyResult> {
 	const store = selectStoreConfig(env, storeDomain);
 	if (!store) {
@@ -635,12 +637,37 @@ async function applyDraftOrderAddons(
 		throw new ClientError("shopify_token_not_installed", 500);
 	}
 
+	const previousState =
+		source === "webhook" && webhookTopic === "draft_orders/update"
+			? await loadDraftAddonState(env, store.storeDomain, draftOrderId)
+			: null;
+	if (source === "webhook" && webhookTopic === "draft_orders/update" && !previousState) {
+		console.log("addons.webhook_ignored", {
+			storeDomain,
+			draftOrderId,
+			source,
+			reason: "draft_order_update_without_state",
+		});
+		return { action: "ignored", reason: "draft_order_update_without_state" };
+	}
+
 	const lineItems = await fetchAllDraftOrderLineItems(authorizedStore, draftOrderId);
-	const addonLines = calculateAddonLines(lineItems, store);
+	const requiredQuantities = calculateRequiredAddonQuantities(lineItems);
+	const existingQuantities = calculateExistingAddonQuantities(lineItems);
+	const staffRemoved = previousState
+		? calculateStaffRemovedQuantities(previousState, requiredQuantities, existingQuantities)
+		: {};
+	const addonLines = calculateAddonLines(lineItems, store, requiredQuantities, existingQuantities, staffRemoved);
 
 	const rebuilt = buildDraftOrderLineItems(lineItems, addonLines, store);
 
 	if (addonLines.length === 0 && !rebuilt.changed) {
+		await saveDraftAddonState(env, store.storeDomain, draftOrderId, {
+			version: 1,
+			required: requiredQuantities,
+			staffRemoved,
+		});
+
 		if (!hasAddonRuleTrigger(lineItems)) {
 			console.log("addons.no_action", {
 				storeDomain,
@@ -656,6 +683,11 @@ async function applyDraftOrderAddons(
 	}
 
 	await updateDraftOrderLineItems(authorizedStore, draftOrderId, rebuilt.lineItems);
+	await saveDraftAddonState(env, store.storeDomain, draftOrderId, {
+		version: 1,
+		required: requiredQuantities,
+		staffRemoved,
+	});
 
 	if (addonLines.length === 0 && rebuilt.changed) {
 		console.log("addons.cleaned_up", {
@@ -876,24 +908,26 @@ function toDraftOrderLineItemInput(lineItem: DraftOrderLineItem): DraftOrderLine
 	return input;
 }
 
-function calculateAddonLines(lineItems: DraftOrderLineItem[], store: StoreConfig): AddonLine[] {
-	const skus = lineItems.flatMap((lineItem) => [
-		normalizeSku(lineItem.sku),
-		normalizeSku(lineItem.variant?.sku),
-	]);
-	const uniqueSkus = new Set(skus);
+function calculateAddonLines(
+	lineItems: DraftOrderLineItem[],
+	store: StoreConfig,
+	requiredQuantities = calculateRequiredAddonQuantities(lineItems),
+	existingQuantities = calculateExistingAddonQuantities(lineItems),
+	staffRemoved: AddonQuantityMap = {},
+): AddonLine[] {
 	const addonLines: AddonLine[] = [];
 
-	if (skus.some((sku) => TRAY_SKUS.has(sku)) && !uniqueSkus.has(FFC_SKU)) {
+	const ffcQty = getMissingAddonQuantity("L-AS-FFC", requiredQuantities, existingQuantities, staffRemoved);
+	if (ffcQty > 0) {
 		addonLines.push({
 			sku: "L-AS-FFC",
 			variantId: store.finalFuelCheckVariantId,
-			quantity: 1,
+			quantity: ffcQty,
 			free: false,
 		});
 	}
 
-	const { wtQty, mfQty, rwsQty } = calculateAccessoryAddonQuantities(lineItems);
+	const wtQty = getMissingAddonQuantity("AS-WT", requiredQuantities, existingQuantities, staffRemoved);
 	if (wtQty > 0) {
 		addonLines.push({
 			sku: "AS-WT",
@@ -903,6 +937,7 @@ function calculateAddonLines(lineItems: DraftOrderLineItem[], store: StoreConfig
 		});
 	}
 
+	const mfQty = getMissingAddonQuantity("AS-MUDFLAP", requiredQuantities, existingQuantities, staffRemoved);
 	if (mfQty > 0) {
 		addonLines.push({
 			sku: "AS-MUDFLAP",
@@ -912,6 +947,7 @@ function calculateAddonLines(lineItems: DraftOrderLineItem[], store: StoreConfig
 		});
 	}
 
+	const rwsQty = getMissingAddonQuantity("AS-RWS", requiredQuantities, existingQuantities, staffRemoved);
 	if (rwsQty > 0) {
 		addonLines.push({
 			sku: "AS-RWS",
@@ -924,15 +960,13 @@ function calculateAddonLines(lineItems: DraftOrderLineItem[], store: StoreConfig
 	return addonLines;
 }
 
-function calculateAccessoryAddonQuantities(lineItems: DraftOrderLineItem[]) {
+function calculateRequiredAddonQuantities(lineItems: DraftOrderLineItem[]): AddonQuantityMap {
+	let ffcRequired = 0;
 	let wtRequired = 0;
 	let mfRequired = 0;
 	let rwsRequired = 0;
 	let canopyQty = 0;
-	let existingWt = 0;
 	let existingUpgradedWt = 0;
-	let existingMudflap = 0;
-	let existingRws = 0;
 	let hasMudflapUpgrade = false;
 
 	for (const lineItem of lineItems) {
@@ -942,7 +976,6 @@ function calculateAccessoryAddonQuantities(lineItems: DraftOrderLineItem[]) {
 		}
 
 		if (sku === WHALE_TAIL_LOCK_SKU) {
-			existingWt += lineItem.quantity;
 			continue;
 		}
 
@@ -952,12 +985,10 @@ function calculateAccessoryAddonQuantities(lineItems: DraftOrderLineItem[]) {
 		}
 
 		if (sku === MUDFLAP_SKU) {
-			existingMudflap += lineItem.quantity;
 			continue;
 		}
 
 		if (sku === RUBBER_WEATHER_SEAL_SKU) {
-			existingRws += lineItem.quantity;
 			continue;
 		}
 
@@ -981,6 +1012,7 @@ function calculateAccessoryAddonQuantities(lineItems: DraftOrderLineItem[]) {
 		}
 
 		if (TRAY_SKUS.has(sku)) {
+			ffcRequired = 1;
 			wtRequired += lineItem.quantity;
 			mfRequired += lineItem.quantity;
 		}
@@ -997,10 +1029,72 @@ function calculateAccessoryAddonQuantities(lineItems: DraftOrderLineItem[]) {
 	}
 
 	return {
-		wtQty: Math.max(0, wtRequired - existingWt - existingUpgradedWt),
-		mfQty: Math.max(0, mfRequired - existingMudflap),
-		rwsQty: Math.max(0, rwsRequired - existingRws),
+		"L-AS-FFC": ffcRequired,
+		"AS-WT": wtRequired,
+		"AS-MUDFLAP": mfRequired,
+		"AS-RWS": rwsRequired,
 	};
+}
+
+function calculateExistingAddonQuantities(lineItems: DraftOrderLineItem[]): AddonQuantityMap {
+	const quantities: AddonQuantityMap = {};
+
+	for (const lineItem of lineItems) {
+		const sku = normalizeSku(lineItem.sku || lineItem.variant?.sku);
+		if (sku === FFC_SKU) {
+			quantities["L-AS-FFC"] = (quantities["L-AS-FFC"] ?? 0) + lineItem.quantity;
+		}
+		if (sku === WHALE_TAIL_LOCK_SKU) {
+			quantities["AS-WT"] = (quantities["AS-WT"] ?? 0) + lineItem.quantity;
+		}
+		if (sku === MUDFLAP_SKU) {
+			quantities["AS-MUDFLAP"] = (quantities["AS-MUDFLAP"] ?? 0) + lineItem.quantity;
+		}
+		if (sku === RUBBER_WEATHER_SEAL_SKU) {
+			quantities["AS-RWS"] = (quantities["AS-RWS"] ?? 0) + lineItem.quantity;
+		}
+	}
+
+	return quantities;
+}
+
+function calculateStaffRemovedQuantities(
+	previousState: DraftAddonState,
+	requiredQuantities: AddonQuantityMap,
+	existingQuantities: AddonQuantityMap,
+): AddonQuantityMap {
+	const staffRemoved: AddonQuantityMap = { ...previousState.staffRemoved };
+
+	for (const sku of getAddonSkus()) {
+		const previouslyRequired = previousState.required[sku] ?? 0;
+		const currentlyRequired = requiredQuantities[sku] ?? 0;
+		const existing = existingQuantities[sku] ?? 0;
+		const removedFromPreviousRequirement = Math.max(
+			0,
+			Math.min(previouslyRequired, currentlyRequired) - existing,
+		);
+		if (removedFromPreviousRequirement > (staffRemoved[sku] ?? 0)) {
+			staffRemoved[sku] = removedFromPreviousRequirement;
+		}
+	}
+
+	return staffRemoved;
+}
+
+function getMissingAddonQuantity(
+	sku: AddonSku,
+	requiredQuantities: AddonQuantityMap,
+	existingQuantities: AddonQuantityMap,
+	staffRemoved: AddonQuantityMap,
+) {
+	return Math.max(
+		0,
+		(requiredQuantities[sku] ?? 0) - (existingQuantities[sku] ?? 0) - (staffRemoved[sku] ?? 0),
+	);
+}
+
+function getAddonSkus(): AddonSku[] {
+	return ["L-AS-FFC", "AS-WT", "AS-MUDFLAP", "AS-RWS"];
 }
 
 function getCanopySizeMm(sku: string): number | null {
@@ -1201,6 +1295,41 @@ async function saveToken(env: AppEnv, storeDomain: string, token: StoredToken): 
 	}
 
 	await env.SHOPIFY_TOKENS.put(tokenKey(storeDomain), JSON.stringify(token));
+}
+
+async function loadDraftAddonState(
+	env: AppEnv,
+	storeDomain: string,
+	draftOrderId: string,
+): Promise<DraftAddonState | null> {
+	const rawState = await env.SHOPIFY_TOKENS?.get(draftAddonStateKey(storeDomain, draftOrderId));
+	if (!rawState) {
+		return null;
+	}
+
+	try {
+		const parsed = JSON.parse(rawState) as Partial<DraftAddonState>;
+		if (parsed.version !== 1 || !parsed.required || !parsed.staffRemoved) {
+			return null;
+		}
+
+		return {
+			version: 1,
+			required: sanitizeAddonQuantityMap(parsed.required),
+			staffRemoved: sanitizeAddonQuantityMap(parsed.staffRemoved),
+		};
+	} catch {
+		return null;
+	}
+}
+
+async function saveDraftAddonState(
+	env: AppEnv,
+	storeDomain: string,
+	draftOrderId: string,
+	state: DraftAddonState,
+): Promise<void> {
+	await env.SHOPIFY_TOKENS?.put(draftAddonStateKey(storeDomain, draftOrderId), JSON.stringify(state));
 }
 
 async function exchangeAuthorizationCodeForToken(
@@ -1449,6 +1578,27 @@ function copyDefined<T extends object, K extends string, V>(
 
 function tokenKey(storeDomain: string) {
 	return `shopify-token:${normalizeStoreDomain(storeDomain)}`;
+}
+
+function draftAddonStateKey(storeDomain: string, draftOrderId: string) {
+	return `${DRAFT_ADDON_STATE_PREFIX}:${normalizeStoreDomain(storeDomain)}:${draftOrderId}`;
+}
+
+function sanitizeAddonQuantityMap(value: unknown): AddonQuantityMap {
+	if (!value || typeof value !== "object" || Array.isArray(value)) {
+		return {};
+	}
+
+	const input = value as Record<string, unknown>;
+	const output: AddonQuantityMap = {};
+	for (const sku of getAddonSkus()) {
+		const quantity = input[sku];
+		if (typeof quantity === "number" && Number.isFinite(quantity) && quantity > 0) {
+			output[sku] = Math.floor(quantity);
+		}
+	}
+
+	return output;
 }
 
 async function hmacSha256Hex(secret: string, message: string): Promise<string> {

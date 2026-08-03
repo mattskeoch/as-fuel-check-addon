@@ -20,6 +20,7 @@ const env = {
 	SHOPIFY_CLIENT_SECRET: "client-secret",
 	SHOPIFY_TOKENS: {
 		get: vi.fn().mockResolvedValue(null),
+		put: vi.fn().mockResolvedValue(undefined),
 	},
 } as const;
 
@@ -1111,6 +1112,94 @@ describe("draft order add-ons Flow endpoint", () => {
 });
 
 describe("draft order add-ons Shopify webhook endpoint", () => {
+	it("adds only new required add-ons on update after staff remove previous add-ons", async () => {
+		const get = vi.fn().mockImplementation((key: string) => {
+			if (key.startsWith("draft-addon-state:")) {
+				return Promise.resolve(
+					JSON.stringify({
+						version: 1,
+						required: {
+							"AS-WT": 4,
+							"AS-RWS": 20,
+						},
+						staffRemoved: {},
+					}),
+				);
+			}
+
+			return Promise.resolve(null);
+		});
+		const put = vi.fn().mockResolvedValue(undefined);
+		const statefulEnv = {
+			...env,
+			SHOPIFY_TOKENS: { get, put },
+		};
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce(
+				Response.json({
+					data: {
+						draftOrder: {
+							id: "gid://shopify/DraftOrder/123",
+							lineItems: {
+								nodes: [testLineItem("AS-C-1000-B", 2)],
+							},
+						},
+					},
+				}),
+			)
+			.mockResolvedValueOnce(
+				Response.json({
+					data: {
+						draftOrderUpdate: {
+							draftOrder: { id: "gid://shopify/DraftOrder/123" },
+							userErrors: [],
+						},
+					},
+				}),
+			);
+
+		vi.stubGlobal("fetch", fetchMock);
+
+		const response = await worker.fetch(
+			(await webhookRequest({
+				id: 123,
+				admin_graphql_api_id: "gid://shopify/DraftOrder/123",
+			})) as any,
+			statefulEnv as any,
+		);
+
+		expect(response.status).toBe(200);
+		await expect(response.json()).resolves.toMatchObject({
+			action: "added",
+			addedSkus: [
+				{ sku: "AS-WT", quantity: 4 },
+				{ sku: "AS-RWS", quantity: 20 },
+			],
+		});
+
+		const updateBody = JSON.parse(fetchMock.mock.calls[1][1].body as string);
+		expect(updateBody.variables.input.lineItems).toEqual([
+			{
+				variantId: "gid://shopify/ProductVariant/AS-C-1000-B",
+				quantity: 2,
+				customAttributes: [],
+			},
+			{
+				variantId: "gid://shopify/ProductVariant/50506355179840",
+				quantity: 4,
+			},
+			{
+				variantId: "gid://shopify/ProductVariant/52021171880256",
+				quantity: 20,
+			},
+		]);
+		expect(put).toHaveBeenCalledWith(
+			"draft-addon-state:autospec-group.myshopify.com:gid://shopify/DraftOrder/123",
+			expect.stringContaining('"AS-RWS":20'),
+		);
+	});
+
 	it("validates Shopify HMAC and applies add-ons on draft order create", async () => {
 		const fetchMock = vi
 			.fn()
@@ -1193,7 +1282,7 @@ describe("draft order add-ons Shopify webhook endpoint", () => {
 		expect(response.status).toBe(200);
 		await expect(response.json()).resolves.toMatchObject({
 			action: "ignored",
-			reason: "draft_order_update_manual_edit_safe",
+			reason: "draft_order_update_without_state",
 		});
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
