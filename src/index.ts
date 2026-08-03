@@ -978,6 +978,10 @@ function calculateAccessoryAddonQuantities(lineItems: DraftOrderLineItem[]) {
 		mfRequired = 0;
 	}
 
+	if (existingUpgradedWt > 0) {
+		wtRequired = 0;
+	}
+
 	return {
 		wtQty: Math.max(0, wtRequired - existingWt - existingUpgradedWt),
 		mfQty: Math.max(0, mfRequired - existingMudflap),
