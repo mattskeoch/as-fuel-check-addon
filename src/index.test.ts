@@ -1111,7 +1111,7 @@ describe("draft order add-ons Flow endpoint", () => {
 });
 
 describe("draft order add-ons Shopify webhook endpoint", () => {
-	it("validates Shopify HMAC and applies add-ons on draft order update", async () => {
+	it("validates Shopify HMAC and applies add-ons on draft order create", async () => {
 		const fetchMock = vi
 			.fn()
 			.mockResolvedValueOnce(
@@ -1140,10 +1140,13 @@ describe("draft order add-ons Shopify webhook endpoint", () => {
 		vi.stubGlobal("fetch", fetchMock);
 
 		const response = await worker.fetch(
-			(await webhookRequest({
-				id: 123,
-				admin_graphql_api_id: "gid://shopify/DraftOrder/123",
-			})) as any,
+			(await webhookRequest(
+				{
+					id: 123,
+					admin_graphql_api_id: "gid://shopify/DraftOrder/123",
+				},
+				{ "x-shopify-topic": "draft_orders/create" },
+			)) as any,
 			env as any,
 		);
 
@@ -1173,6 +1176,26 @@ describe("draft order add-ons Shopify webhook endpoint", () => {
 				quantity: 20,
 			},
 		]);
+	});
+
+	it("does not re-add missing add-ons on draft order update after staff remove them", async () => {
+		const fetchMock = vi.fn();
+		vi.stubGlobal("fetch", fetchMock);
+
+		const response = await worker.fetch(
+			(await webhookRequest({
+				id: 123,
+				admin_graphql_api_id: "gid://shopify/DraftOrder/123",
+			})) as any,
+			env as any,
+		);
+
+		expect(response.status).toBe(200);
+		await expect(response.json()).resolves.toMatchObject({
+			action: "ignored",
+			reason: "draft_order_update_manual_edit_safe",
+		});
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
 	it("rejects draft order webhooks with an invalid Shopify HMAC", async () => {

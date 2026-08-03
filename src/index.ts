@@ -502,6 +502,20 @@ async function handleDraftOrderWebhook(request: Request, env: AppEnv): Promise<R
 		return jsonResponse({ ok: true, action: "ignored", reason: "missing_draft_order_id" });
 	}
 
+	if (topic === "draft_orders/update") {
+		console.log("addons.webhook_ignored", {
+			storeDomain,
+			topic,
+			draftOrderId,
+			reason: "draft_order_update_manual_edit_safe",
+		});
+		return jsonResponse({
+			ok: true,
+			action: "ignored",
+			reason: "draft_order_update_manual_edit_safe",
+		});
+	}
+
 	try {
 		const result = await applyDraftOrderAddons(env, storeDomain, draftOrderId, "webhook");
 		return jsonResponse({ ok: true, ...result });
